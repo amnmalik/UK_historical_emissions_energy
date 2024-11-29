@@ -18,7 +18,6 @@ knitr::opts_chunk$set(echo = FALSE, message = F, warning = F, cache = T)
 ```
 
 ```{r}
-
 library(tidyverse)
 library(ggthemes)
 library(ggsci)
@@ -26,227 +25,430 @@ library(readxl)
 library(ggrepel)
 library(ggpubr)
 library(openxlsx)
+library(extrafont)
+# font_import() # need to do this only once, so uncomment and run once
+loadfonts(device = "win")
 ```
+
 
 ```{r}
-# data <- read_excel("~/CEEW/GHG Platform/Economy-wide/GHGPI-Economy-wide-Estimates-2005-to-2018.xlsx",sheet = "Economywide estimation") %>% 
-  data <- read_excel("data/GHG_Gujrat-Final-Energy-2005-to-2020.xlsx", 
-    sheet = "consolidated") %>% 
-  # select(-27) %>% 
-  pivot_longer(`2005`:`2020`,names_to = "Year") %>% 
-  filter(Gas %in% "CO2e (t) GWP-AR6") %>%
-  filter(State %in% "Gujarat")
+# Color Palette CEEW and font type
+my_custom_palette <- c("#575756", "#9d9d9c", "#D5d7dc", "#C3E5F5", "#71c9eb", "#009cd8", "#8db824", "#b4d48c", "#DDE9BA", "#EA5813", "#F49A70", "#FACAB1")
 
-data_ippu <- read_excel("data/IPPU Emissions-Revised_Final 04-02-24_20240402.xlsx", 
-    sheet = "GHG Emissions Statewise", range = "A4:AP2193") %>% filter(State=="Gujarat",Gas=="CO2EqGWP - AR6") %>% 
-select(-c(12:27)) %>% 
-  pivot_longer(c(`2005`:`2019`),names_to = "Year",values_to = "value") %>% 
-  select(-c(5:6)) %>% 
-  mutate("Level 7"="")
-
-data_waste_afolu <- read_excel("data/GHGPI-Economy-wide-Estimates-2005-to-2018.xlsx",     sheet = "Economywide estimation") %>% 
-  filter(Gas %in% "CO2e (t) GWP-AR6") %>%
-  filter(State %in% "Gujarat") %>% 
-  filter(`Level 1` %in% c("Waste","Agriculture, Forestry and Other Land Use")) %>% 
-  select(-c("Economic Activity","Product")) %>% 
-  pivot_longer(c(`2005`:`2018`),names_to = "Year",values_to = "value")
-
-data <- bind_rows(data,data_ippu,data_waste_afolu)
-#write.xlsx(data, file = "consolidated_sheet.xlsx")
- 
-
-
+theme_set(theme_pubr(base_size = 14, base_family = "Source Sans Pro"))
 ```
+
+
+
+```{r}
+### Input most recent data on emissions from different excel sheets
+
+data_energy <- read_excel("data/GHGPI-Economy-wide-Estimates-2005-to-2018.xlsx", sheet = "consolidated") %>%
+  # select(-27) %>%
+  pivot_longer(`2005`:`2020`, names_to = "Year") %>%
+  filter(Gas %in% "CO2e (t) GWP-AR6") %>%
+  filter(State %in% "Uttarakhand")
+
+# only IPPU emissions, data until 2019
+data_ippu <- read_excel("data/IPPU Emissions-Revised_Final 04-02-24_20240402.xlsx",
+  sheet = "GHG Emissions Statewise", range = "A4:AP2193", na = "-"
+) %>%
+  filter(State == "Uttarakhand", Gas == "CO2EqGWP - AR6") %>%
+  select(-c(12:27)) %>%
+  pivot_longer(c(`2005`:`2019`), names_to = "Year", values_to = "value") %>%
+  select(-c(5:6)) %>%
+  mutate("Level 7" = "")
+
+# only waste and afolu emissions, data until 2018
+data_waste_afolu <- read_excel("data/GHGPI-Economy-wide-Estimates-2005-to-2018.xlsx", sheet = "Economywide estimation", col_types = c(rep("text", 12), rep("numeric", 14))) %>%
+  filter(Gas %in% "CO2e (t) GWP-AR6") %>%
+  filter(State %in% "Uttarakhand") %>%
+  filter(`Level 1` %in% c("Waste", "Agriculture, Forestry and Other Land Use")) %>%
+  select(-c("Economic Activity", "Product")) %>%
+  pivot_longer(c(`2005`:`2018`), names_to = "Year", values_to = "value")
+
+data <- bind_rows(data_energy, data_ippu, data_waste_afolu)
+
+
+write.xlsx(data, file = "output_data/consolidated_emission_sheet.xlsx")
+```
+
 # Emissions
 
 ## Economy-wide Emissions
 ```{r}
 level1 <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-#  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 1`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  filter(Emissions_Removal_Bunker == "Emissions") %>%
+  # Add new rows for "Waste" and "Industrial Product and Process Use",
+  # Taking value in 2018
+  add_row(`Level 1` = "Waste", Year = "2019", value = 3966506) %>%
+  add_row(`Level 1` = "Waste", Year = "2020", value = 3966506) %>%
+  add_row(`Level 1` = "Industrial Product and Process Use", Year = "2020", value = 281233.67) %>%
+  # Remove incorrect 2019 value for "Industrial Product and Process Use" and add a new one
+  filter(!(`Level 1` == "Industrial Product and Process Use" & Year == "2019")) %>%
+  add_row(`Level 1` = "Industrial Product and Process Use", Year = "2019", value = 281233.67) %>%
+  # Remove incorrect values for years 2012 and 2013
+  filter(!(`Level 1` == "Industrial Product and Process Use" & Year %in% c("2012", "2013"))) %>%
+  add_row(`Level 1` = "Industrial Product and Process Use", Year = "2012", value = 1300000) %>%
+  add_row(`Level 1` = "Industrial Product and Process Use", Year = "2013", value = 1300000) %>%
+  add_row(`Level 1` = "Agriculture, Forestry and Other Land Use", Year = "2019", value = 3246997.9) %>%
+  add_row(`Level 1` = "Agriculture, Forestry and Other Land Use", Year = "2020", value = 3246997.9) %>%
+  # remove land category in agriculture emissions
+  filter(!(`Level 2` %in% c("Land"))) %>%
+  # Group data by "Level 1" and "Year" and summarize values
+  group_by(`Level 1`, Year) %>%
+  summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
+  # Calculate percentages of the total value per year
+  group_by(Year) %>%
+  mutate(percent = value / sum(value))
+
+level1_tot <- level1 %>%
+  group_by(Year) %>%
+  summarise(tot = sum(value))
+# ungroup() %>%
+# group_by(`Level 1`) %>%
+# mutate(Change = (value - lag(value))/lag(value)*100)
 
 
-  
-ggplot(level1) +
-  aes(x = Year, y = value/10^6, fill = `Level 1`,label = paste0(percent, "%")) +
-  geom_col() +
-  geom_text(position = position_stack(vjust = 0.5), size = 3, color = "black") + # Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",)+
-  scale_fill_brewer(type = "qual")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+level1 <- level1 %>%
+  mutate(`Level 1` = gsub(x = `Level 1`, pattern = "Agriculture, Forestry and Other Land Use", replacement = "Agriculture"))
 
+ggplot() +
+  geom_col(level1, mapping = aes(x = Year, y = value / 10^6, fill = `Level 1`)) +
+  geom_text(data = level1_tot, aes(x = Year, y = tot / 10^6, label = paste0(round(tot / 10^6, 1))), vjust = -0.5, color = "black", size = 3, fontface = "bold") +
+  geom_text(level1, mapping = aes(x = Year, y = value / 10^6, fill = `Level 1`, label = ifelse(value > 2, round(value / 10^6, 1), "")), position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(x = "", y = "Emissions (MtCO2e)", caption = "IPPU, Waste, and Agriculture emissions unavailable for 2019, 2020. Therefore, respective 2018 values are assumed") +
+  scale_fill_manual(values = my_custom_palette[c(6, 7, 10, 12)]) +
+  theme_pubr() +
+  theme(
+    legend.justification = c(0, 1),
+    legend.position = "top", legend.title = element_blank(),
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  coord_cartesian(ylim = c(0, 20)) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
+
+ggsave("output_plots/total_emissions.png",
+  device = "png", dpi = "print",
+  width = 7, height = 5
+)
+
+
+write.xlsx(level1, file = "output_data/energy_ippu_waste_emissions.xlsx")
 ```
+
+## Fuel-level emissions
+```{r}
+fuel_wise <- data %>%
+  filter(`Level 1` == "Energy") %>%
+  mutate(fuels = case_when(
+    `Level 6` %in% c("Diesel-Retails", "Furnace Oil", "HSDO", "LDO", "Diesel", "ATF", "Motor Spirit", "HSDO - Retail", "Kerosene", "Naptha", "Petroleum Fuels", "LDO/HSD", "LSHS") ~ "Liquid Petroleum Fuels",
+    `Level 6` %in% c("Natural gas", "LPG", "Auto LPG", "Gas", "Natural Gas and its derivatives", "Other Gaseous Fuels", "Gaseous Petroleum Fuels") ~ "Gaseous Petroleum Fuels",
+    `Level 6` %in% c("Lignite", "Coal", "Coke", "Coal and Lignite", "Steam") ~ "Coal",
+    TRUE ~ "Other Fuels" # Default case
+  ))
+
+fuel_wise_tot <- fuel_wise %>%
+  group_by(Year, fuels) %>%
+  summarise(value = sum(value, na.rm = TRUE)) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
+
+
+# Type 1
+ggplot() +
+  geom_col(fuel_wise_tot, mapping = aes(x = Year, y = value / 10^6, fill = fuels)) +
+  geom_text(fuel_wise_tot, mapping = aes(x = Year, y = value / 10^6, fill = fuels, label = ifelse(percent > 2, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 2.5, color = "black") +
+  labs(x = "", y = "Emissions (MtCO2e)") +
+  scale_fill_manual(values = my_custom_palette[c(2, 5, 8, 11)]) +
+  theme(
+    legend.position = c(0.02, 1),
+    legend.justification = c(0, 1),
+    legend.title = element_blank(),
+    axis.text.x = element_text(size = 10, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) + # Set the number of rows in the legend
+  scale_x_discrete(breaks = seq(2005, 2020, by = 3))
+
+ggsave("output_plots/emissions_by_fuel.png",
+  device = "png", dpi = "print",
+  width = 8, height = 6
+)
+
+# Type 2
+
+data2 <- fuel_wise %>%
+  filter(`Level 3` %in% c("Public Electricity Generation", "Residential", "Transport", "Captive Power Plants", "Industries")) %>%
+  select(`Level 3`, Year, value, fuels, `Level 6`) %>%
+  group_by(fuels, `Level 3`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = `Level 3`, values_from = value) %>%
+  mutate(`Electricity Generation` = `Captive Power Plants` + `Public Electricity Generation`) %>%
+  select(-3, -5) %>%
+  pivot_longer(3:6, values_to = "value", names_to = "sector") %>%
+  filter(!is.na(value)) %>%
+  group_by(Year, sector) %>%
+  mutate(percent = round(value / sum(value, na.rm = T) * 100, 0)) %>%
+  ungroup()
+
+ggplot() +
+  geom_col(data2, mapping = aes(x = Year, y = value / 10^6, fill = fuels)) +
+  geom_text(data2, mapping = aes(x = Year, y = value / 10^6, fill = fuels, label = ifelse(percent > 5, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 2.5, color = "black") +
+  labs(x = "", y = "Emissions (MtCO2e)") +
+  facet_wrap(~sector, scales = "free") +
+  labs(x = "", y = "Emissions (MtCO2e)") +
+  scale_fill_manual(values = my_custom_palette[c(2, 5, 8, 11)]) +
+  theme(
+    legend.position = "top",
+    legend.justification = c(0, 1),
+    legend.title = element_blank(),
+    axis.text.x = element_text(size = 12, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 1)) + # Set the number of rows in the legend
+  scale_x_discrete(breaks = seq(2005, 2020, by = 3)) +
+  coord_cartesian(ylim = c(0, 3))
+
+
+ggsave("output_plots/emissions_by_fuel_and_enduse.png",
+  device = "png", dpi = "print",
+  width = 9, height = 7
+)
+
+library(patchwork)
+d + f + plot_layout(guides = "collect", ) + plot_annotation(tag_levels = "a") & theme(legend.position = "top", plot.title = element_blank()) & guides(fill = guide_legend(nrow = 1))
+
+ggsave("output_plots/emissions_by_fuel_patchwork.png",
+  device = "png", dpi = "print",
+  width = 9, height = 5
+)
+```
+
 
 ## Energy emissions
 ```{r}
 level3_energy <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Energy") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 3`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  filter(`Level 1` == "Energy") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  mutate(`Level 3` = case_when(
+    `Level 3` %in% c("Captive Power Plants", "Public Electricity Generation") ~ "Electricity Generation",
+    TRUE ~ `Level 3`
+  )) %>%
+  group_by(`Level 3`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0)) %>%
+  ungroup() %>%
+  # mutate(sector = if_else(percent < 7, "Other", `Level 3`, )) %>%
+  group_by(Year, `Level 3`) %>%
+  summarise(value = sum(value)) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
-level3_energy_tot <- level3_energy %>% 
-  group_by(Year) %>% 
-  summarise(total=sum(value))
+level3_energy_tot <- level3_energy %>%
+  group_by(Year) %>%
+  summarise(total = sum(value))
 
-total_values <- aggregate(value ~ Year, level3_energy, sum)
-  
+
+
+#### Type 1
 ggplot() +
-  geom_col(level3_energy,mapping = aes(x = Year, y = value/10^6, fill = `Level 3`))+
- geom_text(data = total_values, aes(x = Year, y = value/10^6, label = paste0(round(value/10^6, 1))), vjust = -0.5, color = "black", size = 4)+
- geom_text(level3_energy,mapping=aes(x = Year, y = value/10^6, fill = `Level 3`, label = ifelse(percent > 2, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 3, color = "black")+# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "Energy sector emissions")+
-  scale_fill_brewer(type = "qual")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 3))  # Set the number of rows in the legend
+  geom_col(level3_energy, mapping = aes(x = Year, y = value / 10^6, fill = `Level 3`)) +
+  geom_text(data = level3_energy_tot, aes(x = Year, y = total / 10^6, label = paste0(round(total / 10^6, 1))), vjust = -0.5, color = "black", size = 3, fontface = "bold") +
+  geom_text(level3_energy, mapping = aes(x = Year, y = value / 10^6, fill = `Level 3`, label = ifelse(percent > 2, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 3, color = "black") + # Adjust the position and size of the text
+  # ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)") +
+  scale_fill_manual(values = my_custom_palette[4:10]) +
+  theme(
+    legend.justification = c(0, 1),
+    legend.position = c(0.02, 1),
+    legend.title = element_blank(),
+    axis.text.x = element_text(size = 10, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  coord_cartesian(ylim = c(0, 10)) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 
 ggsave("output_plots/energy_emissions.png",
   device = "png", dpi = "print",
   width = 9, height = 6
 )
 
+# Type 2
+a <- ggplot() +
+  geom_area(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, fill = sector, group = interaction(sector))) +
+  geom_line(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, group = interaction(sector)), show.legend = F, position = position_stack(), color = "grey") +
+  geom_point(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, group = interaction(sector)), show.legend = F, position = position_stack(), color = "grey") +
+  geom_text(data = level3_energy_tot, aes(x = Year, y = total / 10^6, label = paste0(round(total / 10^6, 0))), vjust = -0.5, color = "black", size = 3) +
+  theme_pubclean(base_size = 14) +
+  scale_fill_manual(values = my_custom_palette) +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "Energy sector emissions") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 12, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) + # Set the number of rows in the legend
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+  scale_x_discrete(breaks = c(seq(2006, 2020, 2), 2020)) # Display alternate years
 
+b <- ggplot(data = level3_energy %>% filter(Year == 2020), mapping = aes(x = Year, y = value / 10^6)) +
+  geom_col(aes(fill = sector)) +
+  geom_text(mapping = aes(fill = sector, label = ifelse(percent > 3, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 3, color = "white") +
+  theme_void(base_size = 14) +
+  scale_fill_manual(values = my_custom_palette) +
+  guides(colour = "none", fill = "none")
+
+library(patchwork)
+(a | b) +
+  plot_layout(widths = c(3, 1)) + theme(legend.position = "top")
+
+
+ggsave("output_plots/energy_emissions_2.png",
+  device = "png", dpi = "print",
+  width = 8, height = 6
+)
 ```
 
 ## Energy emissions: Transport
 ```{r}
 level4_trans <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Energy" & `Level 3`=="Transport") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 4`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
+  filter(`Level 1` == "Energy" & `Level 3` == "Transport") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 4`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 
-#Transport sector emissions  
+# Transport sector emissions
 ggplot(level4_trans) +
-  aes(x = Year, y = value/10^6, fill = `Level 4`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^6, fill = `Level 4`, label = paste0(percent, "%")) +
   geom_col() +
- geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "Transport sector emissions")+
-  scale_fill_brewer(type = "qual")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "Transport sector emissions") +
+  scale_fill_brewer(type = "qual") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 ```
 
 ## Energy emissions: Industry
 ```{r}
-#Industry sector emissions
+# Industry sector emissions
 level4_industry <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Energy" & `Level 3`=="Industries",!`Level 4` %in% c("Manufacture of Solid Fuels","Non-Ferrous Metals","Textile and Leather","Wood and wood products")) %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 4`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
-  pivot_wider(id_cols = 1,names_from = 1,values_from = value) %>% 
-  mutate(`Food processing+Machinery+Construction`)
+  # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
+  filter(`Level 1` == "Energy" & `Level 3` == "Industries") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 4`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0)) %>%
+  ungroup() %>%
+  mutate(sector = if_else(`Level 4` == "Iron and Steel", `Level 4`, if_else(percent < 6, "Other", `Level 4`))) %>%
+  group_by(Year, sector) %>%
+  summarise(value = sum(value)) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
-#Industry sector emissions  
-ggplot(level4_industry) +
-  aes(x = Year, y = value/10^6, fill = `Level 4`,label = paste0(percent, "%")) +
-  geom_col() +
- geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "Industry sector emissions")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 5))  # Set the number of rows in the legend
+level4_indenergy_tot <- level4_industry %>%
+  group_by(Year) %>%
+  summarise(value = sum(value))
 
-ggsave("output_plots/ipppu4.png",
+# Industry sector emissions
+ggplot() +
+  geom_col(level4_industry, mapping = aes(x = Year, y = value / 10^6, fill = sector)) +
+  geom_text(level4_industry,
+    mapping = aes(x = Year, y = value / 10^6, fill = sector, label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  geom_text(data = level4_indenergy_tot, aes(x = Year, y = value / 10^6, label = paste0(round(value / 10^6, 0))), vjust = -0.5, color = "black", size = 3) +
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "Industry sector emissions") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 3)) # Set the number of rows in the legend
+
+ggsave("output_plots/industry_energy_emissions.png",
   device = "png", dpi = "print",
   width = 8, height = 6
 )
-
-
 ```
 
 ## IPPU Emissions
 ### Level 2
 ```{r}
 level2_ippu <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Industrial Processes and Product Use") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 2`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
+  filter(`Level 1` == "Industrial Product and Process Use") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 2`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
-totals <- aggregate(value ~ Year, data = level2_ippu, FUN = sum)
-  
+totals <- level2_ippu %>%
+  group_by(Year) %>%
+  summarise(tot = sum(value))
+
+
 ggplot() +
-  geom_col(level2_ippu,mapping=aes(x = Year, y = value/10^6, fill = `Level 2`,label = paste0(percent, "%"))) +
-
- # geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
- #            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
-  
-  geom_text(data = totals, mapping=aes(x=Year,y=value/10^6,label = paste0(round(value/10^6,1))), 
-            position = position_stack(vjust = 1.05), size = 3, color = "black")+
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "IPPU sector emissions")+
-  scale_fill_brewer(type = "qual")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 3,title = NULL))  # Set the number of rows in the legend
+  geom_col(level2_ippu, mapping = aes(x = Year, y = value / 10^6, fill = `Level 2`, label = paste0(percent, "%"))) +
+  geom_text(
+    data = totals, mapping = aes(x = Year, y = tot / 10^6, label = paste0(round(tot / 10^6, 0))),
+    position = position_stack(vjust = 1.05), size = 3, color = "black"
+  ) +
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "IPPU sector emissions") +
+  scale_fill_brewer(type = "qual") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2, title = NULL)) # Set the number of rows in the legend
 
 ggsave("output_plots/ippu_energy.png",
   device = "png", dpi = "print",
   width = 8, height = 6
 )
-
 ```
 
 ### Level 3
 ```{r}
 level3_ippu <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Industrial Processes and Product Use") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 3`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
+  filter(`Level 1` == "Industrial Product and Process Use") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 3`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 
-  
-ggplot(level3_ippu %>% filter (Year>2007)) +
-  aes(x = Year, y = value/10^6, fill = `Level 3`,label = paste0(percent, "%")) +
+
+ggplot(level3_ippu %>% filter(Year > 2007)) +
+  aes(x = Year, y = value / 10^6, fill = `Level 3`, label = paste0(percent, "%")) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 4, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "IPPU sector emissions")+
-  scale_fill_brewer(type = "qual")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 3))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 4, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "IPPU sector emissions") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 4)) # Set the number of rows in the legend
 
 
 ggsave("output_plots/ippu_level3.png",
@@ -259,65 +461,69 @@ ggsave("output_plots/ippu_level3.png",
 ### Level 2
 ```{r}
 level2_waste <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Waste") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 2`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
+  filter(`Level 1` == "Waste") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 2`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level2_waste) +
-  aes(x = Year, y = value/10^6, fill = `Level 2`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^6, fill = `Level 2`, label = paste0(percent, "%")) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "IPPU sector emissions")+
-  scale_fill_brewer(type = "qual")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 1,title = NULL))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "IPPU sector emissions") +
+  scale_fill_brewer(type = "qual") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 1, title = NULL)) # Set the number of rows in the legend
 
 ggsave("output_plots/ind_wastewater.png",
   device = "png", dpi = "print",
   width = 8, height = 6
 )
-
 ```
 
 
 ### Level 3
 ```{r}
 level3_waste <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Waste",`Level 2` == "Industrial Wastewater") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 3`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0)) %>% 
-  filter(`Level 3` %in% c("Pulp & Paper","Iron & Steel","Petroleum","Sugar") )
+  # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
+  filter(`Level 1` == "Waste", `Level 2` == "Industrial Wastewater") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 3`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0)) %>%
+  filter(`Level 3` %in% c("Pulp & Paper", "Iron & Steel", "Petroleum", "Sugar"))
 
 ggplot(level3_waste) +
-  aes(x = Year, y = value/10^6, fill = `Level 3`,label = paste0(percent, "%")) +
-  geom_col()+
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "Industrial waste emissions")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 3,title = NULL))  # Set the number of rows in the legend
+  aes(x = Year, y = value / 10^6, fill = `Level 3`, label = paste0(percent, "%")) +
+  geom_col() +
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "Industrial waste emissions") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 3, title = NULL)) # Set the number of rows in the legend
 
 ggsave("output_plots/ind_level3_wastewater.png",
   device = "png", dpi = "print",
   width = 8, height = 6
 )
-
 ```
 
 
@@ -326,52 +532,54 @@ ggsave("output_plots/ind_level3_wastewater.png",
 ### Level 2
 ```{r}
 level2_afolu <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Agriculture, Forestry and Other Land Use") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 2`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
+  filter(`Level 1` == "Agriculture, Forestry and Other Land Use", Emissions_Removal_Bunker == "Emissions") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 2`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level2_afolu) +
-  aes(x = Year, y = value/10^6, fill = `Level 2`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^6, fill = `Level 2`, label = paste0(percent, "%")) +
   geom_col() +
-#geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-#            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "IPPU sector emissions")+
-  scale_fill_brewer(type = "qual")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 1))  # Set the number of rows in the legend
+  # geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+  #            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "AFOLU sector emissions") +
+  scale_fill_brewer(type = "qual") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
 ```
 
 ### Level 3
 ```{r}
 level3_afolu <- data %>%
-     mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>% 
-  filter(`Level 1`=="Agriculture, Forestry and Other Land Use") %>% 
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>% 
-  group_by(`Level 3`,Year) %>% 
-   summarise(value=sum(value)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+  filter(`Level 1` == "Agriculture, Forestry and Other Land Use", Emissions_Removal_Bunker == "Emissions") %>%
+  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
+  group_by(`Level 3`, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level3_afolu) +
-  aes(x = Year, y = value/10^6, fill = `Level 3`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^6, fill = `Level 3`, label = paste0(percent, "%")) +
   geom_col() +
-#geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-#            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)",title = "AFOLU sector emissions")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-    guides(fill = guide_legend(nrow = 4))  # Set the number of rows in the legend
-
+  # geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+  #            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Emissions (MtCO2e)", title = "AFOLU sector emissions") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 4)) # Set the number of rows in the legend
 ```
 
 
@@ -379,352 +587,577 @@ ggplot(level3_afolu) +
 # Energy-use
 
 ```{r}
-activity <- read_excel("~/CEEW/GHG Platform/Energy/GHGPI-Energy-Estimates-by-CSTEP-2005-to-2018.xlsx",sheet = "Activity data") %>% 
-  pivot_longer(`2005`:`2018`,names_to = "Year") %>% 
-  filter(State == "Uttarakhand")
-
-
+activity <- read_excel("~/CEEW/GHG Platform/Energy/GHGPI-Energy-Estimates-by-CSTEP-2005-to-2018.xlsx", sheet = "Activity data") %>%
+  pivot_longer(`2005`:`2018`, names_to = "Year") %>%
+  filter(State == "Gujarat")
 ```
 
 ## Energy-level
 ```{r}
-level3_activity <- activity %>% 
-    group_by(`Level 3`,Year) %>% 
-   summarise(value=sum(value,na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+level3_activity <- activity %>%
+  group_by(`Level 3`, Year) %>%
+  summarise(value = sum(value, na.rm = T)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level3_activity) +
-  aes(x = Year, y = value/10^3, fill = `Level 3`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^3, fill = `Level 3`, label = paste0(percent, "%")) +
   geom_col() +
-#geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-#            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Total fuel consumed (kt)",title = "Fuel consumed")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 3))  # Set the number of rows in the legend
+  # geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+  #            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Total fuel consumed (kt)", title = "Fuel consumed") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 3)) # Set the number of rows in the legend
 ```
 
 ## Transport sector
 ```{r}
-level5_activity_trans <- activity %>% 
-    filter(`Level 3`=="Transport") %>% 
-    group_by(`Level 5`,Year) %>% 
-   summarise(value=sum(value,na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+level5_activity_trans <- activity %>%
+  filter(`Level 3` == "Transport") %>%
+  group_by(`Level 5`, Year) %>%
+  summarise(value = sum(value, na.rm = T)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level5_activity_trans) +
-  aes(x = Year, y = value/10^3, fill = `Level 5`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^3, fill = `Level 5`, label = paste0(percent, "%")) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Total fuel consumed (kt)",title = "Fuel consumed")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Total fuel consumed (kt)", title = "Fuel consumed") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 ```
 
 ### Transport sector disaggregated   
 ```{r}
-level4_5_activity_trans <- activity %>% 
-    filter(`Level 3`=="Transport") %>% 
-    group_by(`Level 4`,`Level 5`,Year) %>% 
-   summarise(value=sum(value,na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(Year,`Level 4`) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+level4_5_activity_trans <- activity %>%
+  filter(`Level 3` == "Transport") %>%
+  group_by(`Level 4`, `Level 5`, Year) %>%
+  summarise(value = sum(value, na.rm = T)) %>%
+  ungroup() %>%
+  group_by(Year, `Level 4`) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
-ggplot(level4_5_activity_trans %>% filter(`Level 4`!="Navigation")) +
-  aes(x = Year, y = value/10^3, fill = `Level 5`,label = paste0(percent, "%")) +
+ggplot(level4_5_activity_trans %>% filter(`Level 4` != "Navigation")) +
+  aes(x = Year, y = value / 10^3, fill = `Level 5`, label = paste0(percent, "%")) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  facet_wrap(~`Level 4`,scales = "free")+
-  labs(x = "", y = "Total fuel consumed (kt)",title = "Transport sector: Fuel consumed")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
-
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  facet_wrap(~`Level 4`, scales = "free") +
+  labs(x = "", y = "Total fuel consumed (kt)", title = "Transport sector: Fuel consumed") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 ```
 
 ## Residential sector
 ```{r}
-level5_activity_res <- activity %>% 
-    filter(`Level 3`=="Residential") %>% 
-    group_by(`Level 5`,Year) %>% 
-   summarise(value=sum(value,na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+level5_activity_res <- activity %>%
+  filter(`Level 3` == "Residential") %>%
+  group_by(`Level 5`, Year) %>%
+  summarise(value = sum(value, na.rm = T)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level5_activity_res) +
-  aes(x = Year, y = value/10^3, fill = `Level 5`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^3, fill = `Level 5`, label = paste0(percent, "%")) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Total fuel consumed (kt)",title = "Fuel consumed: Residential")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Total fuel consumed (kt)", title = "Fuel consumed: Residential") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 ```
 
 ## Commercial sector
 ```{r}
-level5_activity_comm <- activity %>% 
-    filter(`Level 3`=="Commercial") %>% 
-    group_by(`Level 5`,Year) %>% 
-   summarise(value=sum(value,na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+level5_activity_comm <- activity %>%
+  filter(`Level 3` == "Commercial") %>%
+  group_by(`Level 5`, Year) %>%
+  summarise(value = sum(value, na.rm = T)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level5_activity_comm) +
-  aes(x = Year, y = value/10^3, fill = `Level 5`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^3, fill = `Level 5`, label = paste0(percent, "%")) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Total fuel consumed (kt)",title = "Fuel consumed: Commercial")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 2,title = NULL))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Total fuel consumed (kt)", title = "Fuel consumed: Commercial") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2, title = NULL)) # Set the number of rows in the legend
 ```
 
 ## Agricultural sector
 ```{r}
-level5_activity_agri <- activity %>% 
-    filter(`Level 3`=="Agriculture") %>% 
-    group_by(`Level 5`,Year) %>% 
-   summarise(value=sum(value,na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+level5_activity_agri <- activity %>%
+  filter(`Level 3` == "Agriculture") %>%
+  group_by(`Level 5`, Year) %>%
+  summarise(value = sum(value, na.rm = T)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 ggplot(level5_activity_agri) +
-  aes(x = Year, y = value/10^3, fill = `Level 5`,label = paste0(percent, "%")) +
+  aes(x = Year, y = value / 10^3, fill = `Level 5`, label = paste0(percent, "%")) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Total fuel consumed (kt)",title = "Fuel consumed: Agriculture")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 2,title = NULL))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Total fuel consumed (kt)", title = "Fuel consumed: Agriculture") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2, title = NULL)) # Set the number of rows in the legend
 ```
 
 ## Industries sector
 ```{r}
+industries <- read.csv("~/CEEW/GHG Platform/INdustry/EM Public state yearly industry energy use emissions.csv") %>%
+  mutate(financial_year_start_date = substr(financial_year_start_date, 1, 4)) %>%
+  rename(year = financial_year_start_date)
 
-industries <- read.csv("~/CEEW/GHG Platform/INdustry/EM Public state yearly industry energy use emissions.csv") %>% 
-  mutate(financial_year_start_date=substr(financial_year_start_date,1,4)) %>% 
-  rename(year=financial_year_start_date)
 
-
-level1_indus <- industries %>% 
- group_by(industry_sector,year) %>% 
-   summarise(value=sum(energy_consumed,na.rm = T)) %>% 
-  ungroup() %>% 
-  group_by(year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+level1_indus <- industries %>%
+  group_by(industry_sector, year) %>%
+  summarise(value = sum(energy_consumed, na.rm = T)) %>%
+  ungroup() %>%
+  group_by(year) %>%
+  mutate(percent = round(value / sum(value) * 100, 0))
 
 
 ggplot(level1_indus) +
   aes(x = year, y = value, fill = industry_sector) +
   geom_col() +
-geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black") +# Adjust the position and size of the text
- ggthemes::theme_pander() +
-  labs(x = "", y = "Energy consumed (EJ)",caption = "EM: Public state yearly industry energy use emissions")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-  guides(fill = guide_legend(nrow = 5))  # Set the number of rows in the legend
+  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Energy consumed (EJ)", caption = "EM: Public state yearly industry energy use emissions") +
+  scale_fill_ucscgb() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 5)) # Set the number of rows in the legend
 ```
 
 
 # Power
 ```{r}
-power <- read.csv(file = "EM yearly generation data.csv",) %>% 
-  rename(Year="Time") %>% 
-  mutate(Year=substr(Year,1,4)) %>% 
-  pivot_longer(cols = 2:9,names_to = "Source") %>% 
-  group_by(Year) %>% 
-  mutate(percent=round(value/sum(value)*100,0))
+# Data for utility-based generation
+power <- read_excel("data/Niti_dashboard_elec_gen_utility.xlsx", na = "-") %>%
+  pivot_longer(2:11, names_to = "Year") %>%
+  mutate(Parameter = gsub("- Generation \\(in MU\\)", "", Parameter)) %>%
+  filter(!is.na(value)) %>%
+  group_by(Year) %>%
+  mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
+  ungroup() %>%
+  filter(Year != c("2024-25")) # as year has not completed
+
 
 power_total <- power %>%
   group_by(Year) %>%
-  summarize(total_value = sum(value))
+  summarize(total_value = sum(value, na.rm = T)) %>%
+  ungroup()
 
 ggplot() +
-  geom_col(power,mapping = aes(x = Year, y = value, fill = Source))+
-geom_text(power,mapping=aes(x = Year, y = value, fill=Source, label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black")+ # Adjust the position and size of the text
-  geom_text(data = power_total, aes(x = Year, y = total_value, label = round(total_value,0)),
-            vjust = -0.5, size = 4, color = "black")+  # Add total values on top of bars
- ggthemes::theme_pander() +
-  labs(x = "", y = "Electricity Generation (MU)",caption = "Source: CEA")+
-  scale_fill_ucscgb()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+  geom_col(power, mapping = aes(x = Year, y = value / 1000, fill = Parameter)) +
+  geom_text(power,
+    mapping = aes(x = Year, y = value / 1000, fill = Parameter, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  geom_text(
+    data = power_total, aes(x = Year, y = total_value / 1000, label = round(total_value / 1000, 1)),
+    vjust = -0.5, size = 3, color = "black", fontface = "bold"
+  ) + # Add total values on top of bars
 
-ggsave("output_plots/power_generation.png",
+  labs(x = "", y = "Electricity Generation (BU)") +
+  scale_fill_manual(values = my_custom_palette[c(2, 4, 6, 8, 11)]) +
+  theme(
+    legend.justification = c(0, 1),
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  coord_cartesian(ylim = c(0, 18)) +
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
+
+ggsave("output_plots/power_generation_utility.png",
   device = "png", dpi = "print",
   width = 8, height = 6
 )
 
+# Data for captive generation
+power_captive <- read_excel("data/Niti_captive_gen_emissions.xlsx", na = "-") %>%
+  mutate(Unit = "GWh") %>%
+  rename("value" = "Generation (in GWh)") %>%
+  filter(Source != "Total") %>%
+  group_by(Year) %>%
+  mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
+  ungroup()
 
 
+power_captive_total <- power_captive %>%
+  group_by(Year) %>%
+  summarize(total_value = sum(value, na.rm = T)) %>%
+  ungroup()
+
+ggplot() +
+  geom_col(power_captive, mapping = aes(x = Year, y = value / 1000, fill = Source)) +
+  geom_text(power_captive,
+    mapping = aes(x = Year, y = value / 1000, fill = Source, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  geom_text(
+    data = power_captive_total, aes(x = Year, y = total_value / 1000, label = round(total_value / 1000, 1)),
+    vjust = -0.5, size = 3, color = "black", fontface = "bold"
+  ) + # Add total values on top of bars
+
+  labs(x = "", y = "Electricity Generation (BU)") +
+  scale_fill_manual(values = my_custom_palette[c(2:12)]) +
+  theme(
+    legend.justification = c(0, 1),
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  # coord_cartesian(ylim = c(0,18))+
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
+
+ggsave("output_plots/power_generation_captive.png",
+  device = "png", dpi = "print",
+  width = 8, height = 6
+)
+
+# Power consumption
+
+power_consum <- read_excel(path = "data/elec_consumption_niti.xlsx") %>%
+  pivot_longer(2:6, names_to = "Category", values_to = "value") %>%
+  group_by(Year) %>%
+  mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
+  ungroup()
+
+
+power_consum_total <- power_consum %>%
+  group_by(Year) %>%
+  summarize(total_value = sum(value, na.rm = T)) %>%
+  ungroup()
+
+ggplot() +
+  geom_col(power_consum, mapping = aes(x = Year, y = value / 1000, fill = Category)) +
+  geom_text(power_consum,
+    mapping = aes(x = Year, y = value / 1000, fill = Category, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  geom_text(
+    data = power_consum_total, aes(x = Year, y = total_value / 1000, label = round(total_value / 1000, 1)),
+    vjust = -0.5, size = 3, color = "black", fontface = "bold"
+  ) + # Add total values on top of bars
+
+  labs(x = "", y = "Electricity Consumption (BU)") +
+  scale_fill_manual(values = my_custom_palette[c(4, 6, 8, 10, 12)]) +
+  theme(
+    legend.justification = c(0, 1),
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  # coord_cartesian(ylim = c(0,18))+
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
+
+ggsave("output_plots/power_consumption.png",
+  device = "png", dpi = "print",
+  width = 8, height = 6
+)
+
+# Power procurement contracted capacity
+niti_contract <- read_excel("data/Niti_contracted_capacity.xlsx") %>%
+  mutate(Parameter = gsub(" \\(in MW\\)", "", Parameter)) %>%
+  pivot_longer(3:12, names_to = "Year", values_to = "value") %>%
+  mutate(Units = "MW") %>%
+  select(-STATE) %>%
+  group_by(Year) %>%
+  mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
+  ungroup()
+
+niti_contract_tot <- niti_contract %>%
+  group_by(Year) %>%
+  summarize(total_value = sum(value, na.rm = T)) %>%
+  ungroup()
+
+ggplot() +
+  geom_col(niti_contract, mapping = aes(x = Year, y = value / 1000, fill = Parameter)) +
+  geom_text(niti_contract,
+    mapping = aes(x = Year, y = value / 1000, fill = Parameter, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) + # Adjust the position and size of the text
+  geom_text(
+    data = niti_contract_tot, aes(x = Year, y = total_value / 1000, label = round(total_value / 1000, 1)),
+    vjust = -0.5, size = 3, color = "black", fontface = "bold"
+  ) + # Add total values on top of bars
+
+  labs(x = "", y = "Power allocation (GW)") +
+  scale_fill_manual(values = my_custom_palette[c(4, 6, 8, 10, 12)]) +
+  theme(
+    legend.justification = c(0, 1),
+    legend.title = element_blank(), legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  # coord_cartesian(ylim = c(0,18))+
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
+
+ggsave("output_plots/power_contract.png",
+  device = "png", dpi = "print",
+  width = 8, height = 6
+)
 ```
 
 # Macroeconomy
 
-```{r}
-agri1 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - AGRICULTURE.XLSX",     sheet = "T_31(iii)", skip = 5,na = c("-","-*"))%>% mutate(`...1`=gsub("\\*","",`...1`))
-agri2 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - AGRICULTURE.XLSX",     sheet = "T_31(iv)", skip = 5,na = c("-","-*")) %>% slice(1:33) %>% mutate(`...1`=gsub("\\*","",`...1`))
+```{r eval=FALSE, include=FALSE}
+agri1 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - AGRICULTURE.XLSX", sheet = "T_32(iii)", skip = 5, na = c("-", "-*")) %>% mutate(`...1` = gsub("\\*", "", `...1`))
 
-agri <- left_join(agri1,agri2,by="...1") %>% rename("State"="...1") %>% pivot_longer(cols = 2:13,names_to = "Year") %>% 
-  mutate(sector="Agriculture")
+agri2 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - AGRICULTURE.XLSX", sheet = "T_32(iv)", skip = 5, na = c("-", "-*")) %>%
+  slice(1:33) %>%
+  mutate(`...1` = gsub("\\*", "", `...1`))
+
+agri <- left_join(agri1, agri2, by = "...1") %>%
+  rename("State" = "...1") %>%
+  pivot_longer(cols = 2:13, names_to = "Year") %>%
+  mutate(sector = "Agriculture")
 ###########################
-bank1 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - BANKING AND INSURANCE.XLSX",     sheet = "T_48(iii)", skip = 5,na = c("-","-*"))
-bank2 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - BANKING AND INSURANCE.XLSX",     sheet = "T_48(iv)", skip = 5,na = c("-","-*")) %>% slice(1:33) %>% mutate(...1=gsub(x = ...1,"\\*",replacement=""))
+bank1 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - BANKING AND INSURANCE.XLSX", sheet = "T_48(iii)", skip = 5, na = c("-", "-*"))
+bank2 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - BANKING AND INSURANCE.XLSX", sheet = "T_48(iv)", skip = 5, na = c("-", "-*")) %>%
+  slice(1:33) %>%
+  mutate(...1 = gsub(x = ...1, "\\*", replacement = ""))
 
-bank <- left_join(bank1,bank2,by="...1") %>% rename("State"="...1") %>% pivot_longer(cols = 2:13,names_to = "Year")  %>%  mutate(sector="Banking")
-###########################3
-cons1 <- read_excel(path = "GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - CONSTRUCTION.XLSX",     sheet = "T_40(iii)", skip = 5,na = c("-","-*"))
-cons2 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - CONSTRUCTION.XLSX",     sheet = "T_40(iv)", skip = 5,na = c("-","-*")) %>% slice(1:33) %>% mutate(...1=gsub(x = ...1,"\\*",replacement=""))
+bank <- left_join(bank1, bank2, by = "...1") %>%
+  rename("State" = "...1") %>%
+  pivot_longer(cols = 2:13, names_to = "Year") %>%
+  mutate(sector = "Banking")
+########################### 3
+cons1 <- read_excel(path = "data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - CONSTRUCTION.XLSX", sheet = "T_40(iii)", skip = 5, na = c("-", "-*"))
+cons2 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - CONSTRUCTION.XLSX", sheet = "T_40(iv)", skip = 5, na = c("-", "-*")) %>%
+  slice(1:33) %>%
+  mutate(...1 = gsub(x = ...1, "\\*", replacement = ""))
 
-cons <- left_join(cons1,cons2,by="...1") %>% rename("State"="...1") %>% pivot_longer(cols = 2:13,names_to = "Year")  %>% mutate(sector="Construction")
+cons <- left_join(cons1, cons2, by = "...1") %>%
+  rename("State" = "...1") %>%
+  pivot_longer(cols = 2:13, names_to = "Year") %>%
+  mutate(sector = "Construction")
 #############################
-ind1 <- read_excel(path = "GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - INDUSTRY.XLSX",     sheet = "T_44(iii)", skip = 5,na = c("-","-*"))
-ind2 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - INDUSTRY.XLSX",     sheet = "T_44(iv)", skip = 5,na = c("-","-*")) %>% slice(1:33) %>% mutate(...1=gsub(x = ...1,"\\*",replacement=""))
+ind1 <- read_excel(path = "data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - INDUSTRY.XLSX", sheet = "T_44(iii)", skip = 5, na = c("-", "-*"))
+ind2 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - INDUSTRY.XLSX", sheet = "T_44(iv)", skip = 5, na = c("-", "-*")) %>%
+  slice(1:33) %>%
+  mutate(...1 = gsub(x = ...1, "\\*", replacement = ""))
 
-ind <- left_join(ind1,ind2,by="...1") %>% rename("State"="...1") %>% pivot_longer(cols = 2:13,names_to = "Year")  %>% mutate(sector="Industry")
+ind <- left_join(ind1, ind2, by = "...1") %>%
+  rename("State" = "...1") %>%
+  pivot_longer(cols = 2:13, names_to = "Year") %>%
+  mutate(sector = "Industry")
 ###################
 
-manf1 <- read_excel(path = "GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - MANUFACTURING.XLSX",     sheet = "T_36(iii)", skip = 5,na = c("-","-*"))%>% mutate(`...1`=gsub("\\*","",`...1`))
+manf1 <- read_excel(path = "data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - MANUFACTURING.XLSX", sheet = "T_36(iii)", skip = 5, na = c("-", "-*")) %>% mutate(`...1` = gsub("\\*", "", `...1`))
 
-manf2 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - MANUFACTURING.XLSX",     sheet = "T_36(iv)", skip = 5,na = c("-","-*")) %>% slice(1:33) %>% mutate(...1=gsub(x = ...1,"\\*",replacement=""))
+manf2 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - MANUFACTURING.XLSX", sheet = "T_36(iv)", skip = 5, na = c("-", "-*")) %>%
+  slice(1:33) %>%
+  mutate(...1 = gsub(x = ...1, "\\*", replacement = ""))
 
-manf <- left_join(manf1,manf2,by="...1") %>% rename("State"="...1")  %>% pivot_longer(cols = 2:13,names_to = "Year") %>% mutate(sector="Manufacturing")
+manf <- left_join(manf1, manf2, by = "...1") %>%
+  rename("State" = "...1") %>%
+  pivot_longer(cols = 2:13, names_to = "Year") %>%
+  mutate(sector = "Manufacturing")
 ####################
 
-serv1 <- read_excel(path = "GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - SERVICES.XLSX",     sheet = "T_52(iii)", skip = 5,na = c("-","-*"))
-serv2 <- read_excel("GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - SERVICES.XLSX",     sheet = "T_52(iv)", skip = 5,na = c("-","-*")) %>% slice(1:33) %>% mutate(...1=gsub(x = ...1,"\\*",replacement=""))
+serv1 <- read_excel(path = "data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - SERVICES.XLSX", sheet = "T_52(iii)", skip = 5, na = c("-", "-*"))
+serv2 <- read_excel("data/GROSS STATE VALUE ADDED BY ECONOMIC ACTIVITY - SERVICES.XLSX", sheet = "T_52(iv)", skip = 5, na = c("-", "-*")) %>%
+  slice(1:33) %>%
+  mutate(...1 = gsub(x = ...1, "\\*", replacement = ""))
 
-serv <- left_join(serv1,serv2,by="...1") %>% rename("State"="...1") %>% pivot_longer(cols = 2:13,names_to = "Year")  %>% mutate(sector="Services")
+serv <- left_join(serv1, serv2, by = "...1") %>%
+  rename("State" = "...1") %>%
+  pivot_longer(cols = 2:13, names_to = "Year") %>%
+  mutate(sector = "Services")
 ####################
 
-GVA_economy <- bind_rows(agri,bank,cons,ind,manf,serv) %>%
-  mutate(State=trimws(State,"right")) %>% 
-   group_by(Year,State) %>% 
-  mutate(percent=round(value/sum(value)*100,0)) %>% 
-  filter(State=="Uttarakhand") %>% 
-  ungroup() %>% 
+GVA_economy <- bind_rows(agri, bank, cons, ind, manf, serv) %>%
+  mutate(State = trimws(State, "right")) %>%
+  group_by(Year, State) %>%
+  mutate(percent = round(value / sum(value) * 100, 0)) %>%
+  filter(State == "Gujarat") %>%
+  ungroup() %>%
   group_by(sector) %>%
-  mutate(Change = (value - lag(value))/lag(value)*100) %>%
+  mutate(Change = (value - lag(value)) / lag(value) * 100) %>%
   ungroup()
-  
 
-tot <- GVA_economy %>% group_by(State,Year) %>% summarise(value=sum(value))
 
-ggplot(GVA_economy) +
-  
-  geom_col(aes(x = Year, y = value/100000, fill = sector)) +
-geom_text(aes(x = Year, y = value/100000,fill=sector,label = ifelse(percent > 2, paste0(percent, "%"), "")),
-            position = position_stack(vjust = 0.5), size = 3, color = "black")+ 
-geom_text(data = tot,mapping = aes(x=Year, y=value/100000,label=round(value/100000,0),  vjust=-0.5))+
-ggthemes::theme_pander() +
-  labs(x = "", y = "GVA constant prices (000 crore rupees)",title ="GVA by sector",caption = "RBI handbook of Indian States")+
-  scale_fill_uchicago()+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+tot <- GVA_economy %>%
+  group_by(State, Year) %>%
+  summarise(value = sum(value))
 
+ggplot(GVA_economy %>% filter(!Year %in% "2022-23")) +
+  geom_col(aes(x = Year, y = value / 100000, fill = sector)) +
+  geom_text(aes(x = Year, y = value / 100000, fill = sector, label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) +
+  geom_text(data = tot %>% filter(!Year %in% "2022-23"), mapping = aes(x = Year, y = value / 100000, label = round(value / 100000, 0), vjust = -0.5)) +
+  # ggthemes::theme_pander() +
+  labs(x = "", y = "GVA constant prices (000 crore rupees)", caption = "RBI handbook of Indian States") +
+  scale_fill_manual(values = my_custom_palette) +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
+
+
+ggsave(filename = "output_plots/GVA.png", device = "png", width = 8, height = 6)
 
 # Change in GVA- by sector
 
-ggplot()+
-  geom_line(GVA_economy,mapping =aes(x=Year,y=value/100000, color=sector, group=sector))+
-  geom_point(GVA_economy,mapping = aes(x=Year, y=value/100000, color=sector, group=sector), size=2)+
-  geom_text_repel(GVA_economy%>% filter(Year!="2011-12"),mapping = aes(x=Year,y = value/100000,label=paste0(round(Change,1),"%"),group=sector,color=sector),vjust=-0.5,max.overlaps = Inf,size=3)+
-  scale_y_continuous(sec.axis = sec_axis(~ ., name = "GVA by sector (000 crores)")) +
-  scale_color_uchicago()+
-   ggthemes::theme_pander() +
-  labs(x = "", y = "GVA by sector (000 crores)",caption = "RBI: handbook of states in India")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+ggplot() +
+  geom_line(GVA_economy, mapping = aes(x = Year, y = value / 100000, color = sector, group = sector)) +
+  geom_point(GVA_economy, mapping = aes(x = Year, y = value / 100000, color = sector, group = sector), size = 2) +
+  geom_text_repel(GVA_economy %>% filter(Year != "2011-12"), mapping = aes(x = Year, y = value / 100000, label = paste0(round(Change, 1), "%"), group = sector, color = sector), vjust = -0.5, max.overlaps = Inf, size = 3) +
+  scale_y_continuous(sec.axis = sec_axis(~., name = "GVA by sector (000 crores)")) +
+  scale_color_uchicago() +
+  ggthemes::theme_pander() +
+  labs(x = "", y = "GVA by sector (000 crores)", caption = "RBI: handbook of states in India") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
+```
 
+```{r}
+## From Niti Aayog website
+
+niti <- read_excel("data/Niti_GVA.xlsx") %>%
+  select(-percent) %>%
+  group_by(Sector_Category, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>%
+  group_by(Year) %>%
+  mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
+  ungroup()
+
+niti_tot <- niti %>%
+  group_by(Year) %>%
+  summarise(value = sum(value))
+
+
+ggplot() +
+  geom_col(niti, mapping = aes(x = Year, y = value / 100000, fill = Sector_Category)) +
+  geom_text(niti,
+    mapping = aes(x = Year, y = value / 100000, fill = Sector_Category, label = ifelse(percent > 2, paste0(round(percent, 0), "%"), "")),
+    position = position_stack(vjust = 0.5), size = 3, color = "black"
+  ) +
+  geom_text(data = niti_tot, mapping = aes(x = Year, y = value / 100000, label = round(value / 100000, 0), vjust = -0.5, fontface = "bold")) +
+  scale_fill_manual(values = my_custom_palette[c(4, 6, 8, 10)]) +
+  labs(x = "", y = "GVA constant prices (000 crore rupees)") +
+  theme(
+    legend.justification = c(0, 1),
+    legend.position = "top",
+    legend.title = element_blank(),
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
+
+ggsave(filename = "output_plots/GVA_niti.png", device = "png", width = 8, height = 6)
 ```
 
 # Forests
 ```{r}
-forests1 <- read_excel("RBI_state_forest_cover.XLSX", 
-    sheet = "T_101(i)", skip = 3,na = c("-","-*"))
-forests2 <- read_excel("RBI_state_forest_cover.XLSX", 
-    sheet = "T_101(ii)", skip = 3,na = c("-","-*")) %>% slice(1:37)
+forests1 <- read_excel("data/RBI_state_forest_cover.XLSX",
+  sheet = "T_101(i)", skip = 3, na = c("-", "-*")
+)
+forests2 <- read_excel("data/RBI_state_forest_cover.XLSX",
+  sheet = "T_101(ii)", skip = 3, na = c("-", "-*")
+) %>% slice(1:37)
 
-forests <- left_join(forests1,forests2,by="State/Union Territory") %>% 
-  rename(State="State/Union Territory") %>% 
-  select(1,9:19) %>% 
-   pivot_longer(cols = 2:12,names_to = "Year") %>% 
+forests <- left_join(forests1, forests2, by = "State/Union Territory") %>%
+  rename(State = "State/Union Territory") %>%
+  select(1, 9:19) %>%
+  pivot_longer(cols = 2:12, names_to = "Year") %>%
   arrange(State, Year) %>%
   group_by(State) %>%
-  mutate(Change = (value - lag(value))/lag(value)*100) %>%
-  ungroup() %>% 
-  filter(State %in% c("Uttarakhand","Himachal Pradesh"))
+  mutate(Change = (value - lag(value)) / lag(value) * 100) %>%
+  ungroup() %>%
+  filter(State %in% c("Gujarat"))
 
-ggplot()+
-  geom_line(forests,mapping =aes(x=Year,y=value/1000,color=State,group=State))+
-  geom_point(forests,mapping =aes(x=Year,y=value/1000,color=State,group=State),size=2)+
-  geom_text(forests %>% filter(Year!=2001),mapping = aes(x=Year,y = value/1000,label=paste0(round(Change,1),"%"),group=State),vjust=-0.5)+
-  scale_color_wsj()+
-   ggthemes::theme_pander() +
-  labs(x = "", y = "Forest cover (000 sq km)",caption = "Source: India State of Forest Report 2001-2021, Forest Survey of India")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
-
+ggplot() +
+  geom_line(forests, mapping = aes(x = Year, y = value / 1000, color = State, group = State)) +
+  geom_point(forests, mapping = aes(x = Year, y = value / 1000, color = State, group = State), size = 2) +
+  geom_text(forests %>% filter(Year != 2001), mapping = aes(x = Year, y = value / 1000, label = paste0(round(Change, 1), "%"), group = State), vjust = -0.5) +
+  scale_color_wsj() +
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Forest cover (000 sq km)", caption = "Source: India State of Forest Report 2001-2021, Forest Survey of India") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 ```
 
 ### Trees
 ```{r}
-trees <- read_excel("RBI_state_tree_cover.XLSX", 
-    sheet = "T_102", na = c("-","*"), skip = 3) %>% 
-   rename(State="State/Union Territory") %>% 
-  slice(1:37) %>% 
-   pivot_longer(cols = 2:11,names_to = "Year") %>% 
+trees <- read_excel("data/RBI_state_tree_cover.XLSX",
+  sheet = "T_102", na = c("-", "*"), skip = 3
+) %>%
+  rename(State = "State/Union Territory") %>%
+  slice(1:37) %>%
+  pivot_longer(cols = 2:11, names_to = "Year") %>%
   arrange(State, Year) %>%
   group_by(State) %>%
-  mutate(Change = (value - lag(value))/lag(value)*100) %>%
-  ungroup() %>% 
-  filter(State %in% c("Uttarakhand","Himachal Pradesh"))
+  mutate(Change = (value - lag(value)) / lag(value) * 100) %>%
+  ungroup() %>%
+  filter(State %in% c("Gujarat"))
 
-ggplot()+
-  geom_line(trees,mapping =aes(x=Year,y=value,color=State,group=State))+
-  geom_point(trees,mapping =aes(x=Year,y=value,color=State,group=State),size=2)+
-  geom_text_repel(trees %>% filter(Year!=2001),mapping = aes(x=Year,y = value,label=paste0(round(Change,1),"%"),group=State,color=State),vjust=-0.5)+
-  scale_color_wsj()+
-   ggthemes::theme_pander() +
-  labs(x = "", y = "Tree cover (sq km)",caption = "Source: India State of Forest Report 2001-2021, Forest Survey of India")+
-  theme(legend.position = "top",
-        axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8))+
-guides(fill = guide_legend(nrow = 2))  # Set the number of rows in the legend
+ggplot() +
+  geom_line(trees, mapping = aes(x = Year, y = value, color = State, group = State)) +
+  geom_point(trees, mapping = aes(x = Year, y = value, color = State, group = State), size = 2) +
+  geom_text_repel(trees %>% filter(Year != 2001), mapping = aes(x = Year, y = value, label = paste0(round(Change, 1), "%"), group = State, color = State), vjust = -0.5) +
+  scale_color_wsj() +
+  ggthemes::theme_pander() +
+  labs(x = "", y = "Tree cover (sq km)", caption = "Source: India State of Forest Report 2001-2021, Forest Survey of India") +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+  ) +
+  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 ```
-
-
-
