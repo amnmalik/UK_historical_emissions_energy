@@ -866,7 +866,7 @@ ggsave("output_plots/power_generation_captive.png",
 
 # Power consumption
 
-power_consum <- read_excel(path = "data/elec_consumption_niti.xlsx") %>%
+power_consum <- read_excel(path = "data/Niti_elec_consumption.xlsx") %>%
   pivot_longer(2:6, names_to = "Category", values_to = "value") %>%
   group_by(Year) %>%
   mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
