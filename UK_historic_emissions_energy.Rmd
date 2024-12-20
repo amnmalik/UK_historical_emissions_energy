@@ -399,7 +399,7 @@ ggplot() +
 
 ggsave("output_plots/industry_energy_emissions.png",
   device = "png", dpi = "print",
-  width = 8, height = 6
+  width = 10, height = 6
 )
 ```
 
