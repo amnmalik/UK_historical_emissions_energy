@@ -5,3 +5,6 @@
 *.gitattributes
 output_data
 output_plots
+UK_historic_emissions_energy_files
+UK_historic_emissions_energy_cache
+*.html

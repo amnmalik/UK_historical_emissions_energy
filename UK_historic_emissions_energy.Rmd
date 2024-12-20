@@ -119,14 +119,14 @@ ggplot() +
   geom_text(level1, mapping = aes(x = Year, y = value / 10^6, fill = `Level 1`, label = ifelse(value > 2, round(value / 10^6, 1), "")), position = position_stack(vjust = 0.5), size = 3, color = "black") +
   labs(x = "", y = "Emissions (MtCO2e)", caption = "IPPU, Waste, and Agriculture emissions unavailable for 2019, 2020. Therefore, respective 2018 values are assumed") +
   scale_fill_manual(values = my_custom_palette[c(6, 7, 10, 12)]) +
-  theme_pubr() +
+ # theme_pubr() +
   theme(
     legend.justification = c(0, 1),
     legend.position = "top", legend.title = element_blank(),
     axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
   ) +
   coord_cartesian(ylim = c(0, 20)) +
-  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
 
 ggsave("output_plots/total_emissions.png",
   device = "png", dpi = "print",
@@ -214,13 +214,13 @@ ggsave("output_plots/emissions_by_fuel_and_enduse.png",
   width = 9, height = 7
 )
 
-library(patchwork)
-d + f + plot_layout(guides = "collect", ) + plot_annotation(tag_levels = "a") & theme(legend.position = "top", plot.title = element_blank()) & guides(fill = guide_legend(nrow = 1))
+# library(patchwork)
+# d + f + plot_layout(guides = "collect", ) + plot_annotation(tag_levels = "a") & theme(legend.position = "top", plot.title = element_blank()) & guides(fill = guide_legend(nrow = 1))
 
-ggsave("output_plots/emissions_by_fuel_patchwork.png",
-  device = "png", dpi = "print",
-  width = 9, height = 5
-)
+# ggsave("output_plots/emissions_by_fuel_patchwork.png",
+#   device = "png", dpi = "print",
+#   width = 9, height = 5
+# )
 ```
 
 
@@ -274,31 +274,35 @@ ggsave("output_plots/energy_emissions.png",
 
 # Type 2
 a <- ggplot() +
-  geom_area(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, fill = sector, group = interaction(sector))) +
-  geom_line(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, group = interaction(sector)), show.legend = F, position = position_stack(), color = "grey") +
-  geom_point(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, group = interaction(sector)), show.legend = F, position = position_stack(), color = "grey") +
+  geom_area(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, fill =`Level 3` , group = interaction(`Level 3`))) +
+  geom_line(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, group = interaction(`Level 3`)), show.legend = F, position = position_stack(), color = "grey") +
+  geom_point(data = level3_energy, mapping = aes(x = Year, y = value / 10^6, group = interaction(`Level 3`)), show.legend = F, position = position_stack(), color = "grey") +
   geom_text(data = level3_energy_tot, aes(x = Year, y = total / 10^6, label = paste0(round(total / 10^6, 0))), vjust = -0.5, color = "black", size = 3) +
-  theme_pubclean(base_size = 14) +
+ # theme_pubclean(base_size = 14) +
   scale_fill_manual(values = my_custom_palette) +
-  labs(x = "", y = "Emissions (MtCO2e)", title = "Energy sector emissions") +
+  labs(x = "", y = "Emissions (MtCO2e)", 
+       #title = "Energy sector emissions"
+       NULL) +
   theme(
     legend.position = "top",
-    axis.text.x = element_text(size = 12, angle = 45, vjust = 0.8, hjust = 0.8)
+    legend.justification = c(0,1),
+    legend.title = element_blank(),
+    axis.text.x = element_text(size = 10, angle = 45, vjust = 0.8, hjust = 0.8)
   ) +
   guides(fill = guide_legend(nrow = 2)) + # Set the number of rows in the legend
   scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   scale_x_discrete(breaks = c(seq(2006, 2020, 2), 2020)) # Display alternate years
 
 b <- ggplot(data = level3_energy %>% filter(Year == 2020), mapping = aes(x = Year, y = value / 10^6)) +
-  geom_col(aes(fill = sector)) +
-  geom_text(mapping = aes(fill = sector, label = ifelse(percent > 3, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 3, color = "white") +
+  geom_col(aes(fill = `Level 3`),vjust=0.5) +
+  geom_text(mapping = aes(fill = `Level 3`, label = ifelse(percent > 3, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 3, color = "white") +
   theme_void(base_size = 14) +
   scale_fill_manual(values = my_custom_palette) +
   guides(colour = "none", fill = "none")
 
 library(patchwork)
 (a | b) +
-  plot_layout(widths = c(3, 1)) + theme(legend.position = "top")
+  plot_layout(widths = c(3, 1)) + theme(legend.title = element_blank())
 
 
 ggsave("output_plots/energy_emissions_2.png",
@@ -319,22 +323,35 @@ level4_trans <- data %>%
   group_by(Year) %>%
   mutate(percent = round(value / sum(value) * 100, 0))
 
+level4_trans_tot <- level4_trans %>%
+  group_by(Year) %>%
+  summarise(total = sum(value))
+
 
 # Transport sector emissions
-ggplot(level4_trans) +
-  aes(x = Year, y = value / 10^6, fill = `Level 4`, label = paste0(percent, "%")) +
-  geom_col() +
-  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
+ggplot() +
+   geom_col(data = level4_trans,mapping = aes(x = Year, y = value / 10^6, fill = `Level 4`, label = paste0(percent, "%"))) +
+  geom_text(data = level4_trans,mapping = aes(x = Year, y = value / 10^6,label = ifelse(percent > 2, paste0(percent, "%"), "")),
     position = position_stack(vjust = 0.5), size = 3, color = "black"
   ) + # Adjust the position and size of the text
   ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)", title = "Transport sector emissions") +
-  scale_fill_brewer(type = "qual") +
+     geom_text(data = level4_trans_tot, aes(x = Year, y = total / 10^6, label = paste0(round(total / 10^6, 1))), vjust = -0.5, color = "black", size = 3,fontface="bold") +
+  labs(x = "", y = "Emissions (MtCO2e)",
+       #title = "Transport sector emissions",
+       NULL) +
+  scale_fill_manual(values = my_custom_palette[c(2,4,6,8)]) +
   theme(
-    legend.position = "top",
+   legend.position = "top",
+    legend.justification  = c(0,1),
+    legend.title = element_blank(),
     axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
   ) +
-  guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
+  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
+
+ggsave("output_plots/transport_sector_emissions.png",
+  device = "png", dpi = "print",
+  width = 8, height = 6
+)
 ```
 
 ## Energy emissions: Industry
@@ -346,14 +363,15 @@ level4_industry <- data %>%
   #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
   group_by(`Level 4`, Year) %>%
   summarise(value = sum(value)) %>%
-  ungroup() %>%
+  ungroup() %>% 
   group_by(Year) %>%
   mutate(percent = round(value / sum(value) * 100, 0)) %>%
-  ungroup() %>%
-  mutate(sector = if_else(`Level 4` == "Iron and Steel", `Level 4`, if_else(percent < 6, "Other", `Level 4`))) %>%
-  group_by(Year, sector) %>%
-  summarise(value = sum(value)) %>%
-  mutate(percent = round(value / sum(value) * 100, 0))
+  ungroup() %>% 
+  mutate(sector=`Level 4`)
+  # mutate(sector = if_else(`Level 4` == "Iron and Steel", `Level 4`, if_else(percent < 6, "Other", `Level 4`))) %>%
+  # group_by(Year, sector) %>%
+  # summarise(value = sum(value)) %>%
+  # mutate(percent = round(value / sum(value) * 100, 0))
 
 level4_indenergy_tot <- level4_industry %>%
   group_by(Year) %>%
@@ -363,18 +381,21 @@ level4_indenergy_tot <- level4_industry %>%
 ggplot() +
   geom_col(level4_industry, mapping = aes(x = Year, y = value / 10^6, fill = sector)) +
   geom_text(level4_industry,
-    mapping = aes(x = Year, y = value / 10^6, fill = sector, label = ifelse(percent > 2, paste0(percent, "%"), "")),
+    mapping = aes(x = Year, y = value / 10^6, fill = sector, label = ifelse(percent > 5, paste0(percent, "%"), "")),
     position = position_stack(vjust = 0.5), size = 3, color = "black"
   ) + # Adjust the position and size of the text
-  geom_text(data = level4_indenergy_tot, aes(x = Year, y = value / 10^6, label = paste0(round(value / 10^6, 0))), vjust = -0.5, color = "black", size = 3) +
-  ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)", title = "Industry sector emissions") +
-  scale_fill_ucscgb() +
+  geom_text(data = level4_indenergy_tot, aes(x = Year, y = value / 10^6, label = paste0(round(value / 10^6, 1))), vjust = -0.5, color = "black", size = 3,fontface="bold") +
+  labs(x = "", y = "Emissions (MtCO2e)", 
+      # title = "Industry sector emissions",
+       NULL) +
+  scale_fill_manual(values = c(my_custom_palette,"yellow")) +
   theme(
     legend.position = "top",
+    legend.justification  = c(0,1),
+    legend.title = element_blank(),
     axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
   ) +
-  guides(fill = guide_legend(nrow = 3)) # Set the number of rows in the legend
+  guides(fill = guide_legend(nrow = 4)) # Set the number of rows in the legend
 
 ggsave("output_plots/industry_energy_emissions.png",
   device = "png", dpi = "print",
@@ -589,7 +610,7 @@ ggplot(level3_afolu) +
 ```{r}
 activity <- read_excel("~/CEEW/GHG Platform/Energy/GHGPI-Energy-Estimates-by-CSTEP-2005-to-2018.xlsx", sheet = "Activity data") %>%
   pivot_longer(`2005`:`2018`, names_to = "Year") %>%
-  filter(State == "Gujarat")
+  filter(State == "Uttarakhand")
 ```
 
 ## Energy-level
@@ -1161,3 +1182,45 @@ ggplot() +
   ) +
   guides(fill = guide_legend(nrow = 2)) # Set the number of rows in the legend
 ```
+
+
+# Transport stock
+```{r}
+veh_data <-  read_csv("data/DM - District level data 02Dec24.csv", 
+    col_types = cols(Year = col_number())) %>% 
+  filter(State=="Uttarakhand",Year<2024) %>% 
+  pivot_longer(3:4,names_to = "indicator",values_to = "value") %>% 
+  group_by(Category,Year,indicator) %>% 
+  summarise(value=sum(value)) %>% 
+  group_by(indicator) 
+
+
+veh_data_filter <- veh_data %>% filter(Year>2005,indicator=="Stock") 
+  # group_by(Year) %>% 
+  # mutate(percent=value/sum(value)) %>% 
+
+veh_data_filter2 <- veh_data %>% filter(Year>2005,indicator=="Stock",Year=="2010") 
+
+
+veh_data_comb <- left_join(veh_data_filter,veh_data_filter2,by=c("Category")) %>% 
+  mutate(increase=value.x/value.y) %>% filter(Year.x>2009)
+
+ggplot(veh_data_comb, aes(x = Year.x, y = increase, color = Category)) +
+  geom_line(linewidth=1.5) +
+  geom_text(
+    data = veh_data_comb %>% group_by(Category) %>% filter(Year.x == max(Year.x)), 
+    aes(label = Category), 
+    hjust = -0.3
+  ) +
+  scale_color_manual(values = my_custom_palette)+
+  #theme_minimal() +
+  labs(x = "", y = "Increase", color = "Category") +
+  theme(legend.position = "none")+ # Optional: remove legend
+
+
+  scale_x_continuous(breaks = unique(veh_data_comb$Year.x)) 
+ # Optional: remove legend
+
+ggsave(filename = "output_plots/transport.png", device = "png", width = 9, height = 5)
+```
+
