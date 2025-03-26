@@ -214,6 +214,8 @@ ggsave("output_plots/emissions_by_fuel_and_enduse.png",
   width = 9, height = 7
 )
 
+write.xlsx(data2,"output_data/emissions_by_sector_fuel.xlsx")
+
 # library(patchwork)
 # d + f + plot_layout(guides = "collect", ) + plot_annotation(tag_levels = "a") & theme(legend.position = "top", plot.title = element_blank()) & guides(fill = guide_legend(nrow = 1))
 
@@ -800,7 +802,7 @@ ggplot(level1_indus) +
 ```
 
 
-# Power
+# Electricity Generation
 ```{r}
 # Data for utility-based generation
 power <- read_excel("data/Niti_dashboard_elec_gen_utility.xlsx", na = "-") %>%
@@ -845,7 +847,7 @@ ggsave("output_plots/power_generation_utility.png",
 )
 
 # Data for captive generation
-power_captive <- read_excel("data/Niti_captive_gen_emissions.xlsx", na = "-") %>%
+power_captive <- read_excel("data/Niti_captive_generation.xlsx", na = "-") %>%
   mutate(Unit = "GWh") %>%
   rename("value" = "Generation (in GWh)") %>%
   filter(Source != "Total") %>%
@@ -859,14 +861,16 @@ power_captive_total <- power_captive %>%
   summarize(total_value = sum(value, na.rm = T)) %>%
   ungroup()
 
+yrs_to_del <- c("2005-06","2006-07","2007-08","2008-09","2009-10","2010-11")
+
 ggplot() +
-  geom_col(power_captive, mapping = aes(x = Year, y = value / 1000, fill = Source)) +
-  geom_text(power_captive,
+  geom_col(power_captive %>% filter(!Year %in% yrs_to_del) , mapping = aes(x = Year, y = value / 1000, fill = Source)) +
+  geom_text(power_captive %>% filter(!Year %in% yrs_to_del) ,
     mapping = aes(x = Year, y = value / 1000, fill = Source, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
     position = position_stack(vjust = 0.5), size = 3, color = "black"
   ) + # Adjust the position and size of the text
   geom_text(
-    data = power_captive_total, aes(x = Year, y = total_value / 1000, label = round(total_value / 1000, 1)),
+    data = power_captive_total%>% filter(!Year %in% yrs_to_del) , aes(x = Year, y = total_value / 1000, label = round(total_value / 1000, 1)),
     vjust = -0.5, size = 3, color = "black", fontface = "bold"
   ) + # Add total values on top of bars
 
@@ -880,19 +884,36 @@ ggplot() +
   # coord_cartesian(ylim = c(0,18))+
   guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
 
+write.xlsx(power_captive,file = "output_data/captive_power.xlsx")
+
 ggsave("output_plots/power_generation_captive.png",
   device = "png", dpi = "print",
   width = 8, height = 6
 )
+```
 
+# Electricity Consumption
+```{r}
 # Power consumption
 
-power_consum <- read_excel(path = "data/Niti_elec_consumption.xlsx") %>%
-  pivot_longer(2:6, names_to = "Category", values_to = "value") %>%
+power_consum <- read_excel(path = "data/Vasudha_Consumer_Parameter_Analysis_1742966522532.xlsx") %>% 
+  rename("value"=3) %>% 
+  mutate(Units="MU",value=as.numeric(value)) %>% 
+  select(-4) %>% 
+  pivot_wider(id_cols = 1,names_from = 1,values_from = value) %>% 
+  mutate(Others =Others+`Electric Vehicles`+Railways) %>% 
+  select(-c(`Electric Vehicles`,Railways)) %>% 
+  pivot_longer(2:7,names_to = "Parameter",values_to = "value") %>% 
   group_by(Year) %>%
   mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
   ungroup()
 
+
+Power_inc <- power_consum %>% 
+  filter(Year %in% c("2015-16","2023-24")) %>% 
+  pivot_wider(id_cols = 1,names_from = 1,values_from = value) %>% 
+  mutate(increase=(`2023-24`-`2015-16`)/(`2015-16`)*100)
+  
 
 power_consum_total <- power_consum %>%
   group_by(Year) %>%
@@ -900,9 +921,9 @@ power_consum_total <- power_consum %>%
   ungroup()
 
 ggplot() +
-  geom_col(power_consum, mapping = aes(x = Year, y = value / 1000, fill = Category)) +
+  geom_col(power_consum, mapping = aes(x = Year, y = value / 1000, fill = Parameter)) +
   geom_text(power_consum,
-    mapping = aes(x = Year, y = value / 1000, fill = Category, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
+    mapping = aes(x = Year, y = value / 1000, fill = Parameter, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
     position = position_stack(vjust = 0.5), size = 3, color = "black"
   ) + # Adjust the position and size of the text
   geom_text(
@@ -910,8 +931,8 @@ ggplot() +
     vjust = -0.5, size = 3, color = "black", fontface = "bold"
   ) + # Add total values on top of bars
 
-  labs(x = "", y = "Electricity Consumption (BU)") +
-  scale_fill_manual(values = my_custom_palette[c(4, 6, 8, 10, 12)]) +
+  labs(x = "", y = "Electricity Sales (BU)") +
+  scale_fill_manual(values = my_custom_palette[c(2,4,6,8, 10, 12)]) +
   theme(
     legend.justification = c(0, 1),
     legend.title = element_blank(), legend.position = "top",
