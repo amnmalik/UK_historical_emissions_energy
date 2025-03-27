@@ -486,31 +486,42 @@ ggsave("output_plots/ippu_level3.png",
 level2_waste <- data %>%
   # mutate(`Emission / Removal / Bunker`=gsub(x = `Emission / Removal / Bunker`,"Removals","Emissions")) %>%
   filter(`Level 1` == "Waste") %>%
-  #  filter(!is.na(`Emission / Removal / Bunker`)) %>%
   group_by(`Level 2`, Year) %>%
   summarise(value = sum(value)) %>%
   ungroup() %>%
   group_by(Year) %>%
   mutate(percent = round(value / sum(value) * 100, 0))
 
-ggplot(level2_waste) +
-  aes(x = Year, y = value / 10^6, fill = `Level 2`, label = paste0(percent, "%")) +
-  geom_col() +
-  geom_text(aes(label = ifelse(percent > 2, paste0(percent, "%"), "")),
-    position = position_stack(vjust = 0.5), size = 3, color = "black"
-  ) + # Adjust the position and size of the text
-  ggthemes::theme_pander() +
-  labs(x = "", y = "Emissions (MtCO2e)", title = "IPPU sector emissions") +
-  scale_fill_brewer(type = "qual") +
+level2_waste_tot <- level2_waste %>%
+  group_by(Year) %>%
+  summarise(total = sum(value))
+
+  geom_col(level3_energy, mapping = aes(x = Year, y = value / 10^6, fill = `Level 3`)) +
+  geom_text(data = level3_energy_tot, aes(x = Year, y = total / 10^6, label = paste0(round(total / 10^6, 1))), vjust = -0.5, color = "black", size = 3, fontface = "bold") +
+  geom_text(level3_energy, mapping = aes(x = Year, y = value / 10^6, fill = `Level 3`, label = ifelse(percent > 2, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 3, color = "black")  # Adjust the position and 
+
+ggplot() +  
+  geom_col(data = level2_waste, mapping = aes(x = Year, y = value / 10^6, fill = `Level 2`))+
+  geom_text(data = level2_waste_tot,   
+            aes(x = Year, y = total / 10^6, label = paste0(round(total / 10^6, 1))),   
+            vjust = -0.5, color = "black", size = 3, fontface = "bold")+
+  geom_text(level2_waste, mapping = aes(x = Year, y = value / 10^6, fill = `Level 2`, label = ifelse(percent > 2, paste0(percent, "%"), "")), position = position_stack(vjust = 0.5), size = 3, color = "black") + # Adjust the position and size of the text
+
+  labs(x = "", y = "Emissions (MtCO2e)") +
+    scale_fill_manual(values = my_custom_palette[c(2,4,6)]) +
   theme(
-    legend.position = "top",
-    axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
+    legend.justification = c(0, 1),
+    legend.position = c(0.02, 1),
+    legend.title = element_blank(),
+    axis.text.x = element_text(size = 10, angle = 45, vjust = 0.8, hjust = 0.8)
   ) +
-  guides(fill = guide_legend(nrow = 1, title = NULL)) # Set the number of rows in the legend
+  guides(fill = guide_legend(nrow = 1))+
+    coord_cartesian(ylim = c(0, 8))
+
 
 ggsave("output_plots/ind_wastewater.png",
   device = "png", dpi = "print",
-  width = 8, height = 6
+  width = 8, height = 6 
 )
 ```
 
@@ -805,24 +816,29 @@ ggplot(level1_indus) +
 # Electricity Generation
 ```{r}
 # Data for utility-based generation
-power <- read_excel("data/Niti_dashboard_elec_gen_utility.xlsx", na = "-") %>%
+power_gen <- read_excel("data/Niti_dashboard_elec_gen_utility.xlsx", na = "-") %>%
   pivot_longer(2:11, names_to = "Year") %>%
-  mutate(Parameter = gsub("- Generation \\(in MU\\)", "", Parameter)) %>%
+  mutate(Parameter = gsub(" - Generation \\(in MU\\)", "", Parameter)) %>%
+    mutate(Parameter = gsub("Oil \\& Gas", "Gas", Parameter)) %>%
   filter(!is.na(value)) %>%
+  pivot_wider(id_cols = 1,names_from = 1,values_from = value) %>% 
+  mutate(Hydro = Hydro + `Small-Hydro`) %>% 
+  select(-`Small-Hydro`) %>% 
+  pivot_longer(2:5,names_to = "Parameter",values_to = "value") %>% 
   group_by(Year) %>%
   mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
   ungroup() %>%
   filter(Year != c("2024-25")) # as year has not completed
 
 
-power_total <- power %>%
+power_total <- power_gen %>%
   group_by(Year) %>%
   summarize(total_value = sum(value, na.rm = T)) %>%
   ungroup()
 
 ggplot() +
-  geom_col(power, mapping = aes(x = Year, y = value / 1000, fill = Parameter)) +
-  geom_text(power,
+  geom_col(power_gen, mapping = aes(x = Year, y = value / 1000, fill = Parameter)) +
+  geom_text(power_gen,
     mapping = aes(x = Year, y = value / 1000, fill = Parameter, label = ifelse(percent > 3, paste0(round(percent, 0), "%"), "")),
     position = position_stack(vjust = 0.5), size = 3, color = "black"
   ) + # Adjust the position and size of the text
@@ -832,7 +848,7 @@ ggplot() +
   ) + # Add total values on top of bars
 
   labs(x = "", y = "Electricity Generation (BU)") +
-  scale_fill_manual(values = my_custom_palette[c(2, 4, 6, 8, 11)]) +
+  scale_fill_manual(values = my_custom_palette[c(4, 6, 8,10)]) +
   theme(
     legend.justification = c(0, 1),
     legend.title = element_blank(), legend.position = "top",
@@ -1109,7 +1125,7 @@ ggplot() +
 ```{r}
 ## From Niti Aayog website
 
-niti <- read_excel("data/Niti_GVA.xlsx") %>%
+niti <- read_excel("data/Niti_GVA_constant.xlsx") %>%
   select(-percent) %>%
   group_by(Sector_Category, Year) %>%
   summarise(value = sum(value)) %>%
@@ -1122,15 +1138,33 @@ niti_tot <- niti %>%
   group_by(Year) %>%
   summarise(value = sum(value))
 
+niti_current <- read_excel("data/Niti_GVA_current.xlsx") %>%
+   group_by(Sector2, Year) %>%
+  summarise(value = sum(value)) %>%
+  ungroup() %>% 
+  group_by(Year) %>%
+  mutate(percent = (value / sum(value, na.rm = T)) * 100) %>%
+  ungroup()
+
+nit_current_inc <- niti_current %>% 
+  filter(Year %in% c("2011-12","2023-24")) %>% 
+  select(-percent) %>% 
+  pivot_wider(names_from = "Year",values_from = "value") %>% 
+  mutate(increase=`2023-24`/`2011-12`)
+
+niti_current_tot <- niti_current %>%
+  group_by(Year) %>%
+  summarise(value = sum(value))
+
 
 ggplot() +
-  geom_col(niti, mapping = aes(x = Year, y = value / 100000, fill = Sector_Category)) +
-  geom_text(niti,
-    mapping = aes(x = Year, y = value / 100000, fill = Sector_Category, label = ifelse(percent > 2, paste0(round(percent, 0), "%"), "")),
+  geom_col(niti_current, mapping = aes(x = Year, y = value / 100000, fill = Sector2))+
+  geom_text(niti_current,
+    mapping = aes(x = Year, y = value / 100000, fill = Sector2, label = ifelse(percent > 2, paste0(round(percent, 0), "%"), "")),
     position = position_stack(vjust = 0.5), size = 3, color = "black"
   ) +
-  geom_text(data = niti_tot, mapping = aes(x = Year, y = value / 100000, label = round(value / 100000, 0), vjust = -0.5, fontface = "bold")) +
-  scale_fill_manual(values = my_custom_palette[c(4, 6, 8, 10)]) +
+  geom_text(data = niti_current_tot, mapping = aes(x = Year, y = value / 100000, label = round(value / 100000, 0), vjust = -0.5, fontface = "bold"))+
+  scale_fill_manual(values = my_custom_palette[c(2,4, 6, 8, 10,12)]) +
   labs(x = "", y = "GVA constant prices (000 crore rupees)") +
   theme(
     legend.justification = c(0, 1),
@@ -1138,9 +1172,9 @@ ggplot() +
     legend.title = element_blank(),
     axis.text.x = element_text(size = 9, angle = 45, vjust = 0.8, hjust = 0.8)
   ) +
-  guides(fill = guide_legend(nrow = 1)) # Set the number of rows in the legend
+  guides(fill = guide_legend(nrow = 3)) # Set the number of rows in the legend
 
-ggsave(filename = "output_plots/GVA_niti.png", device = "png", width = 8, height = 6)
+ggsave(filename = "output_plots/GVA_current_niti.png", device = "png", width = 8, height = 6)
 ```
 
 # Forests
